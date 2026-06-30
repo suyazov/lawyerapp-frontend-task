@@ -35,6 +35,8 @@ import { Meta } from "@/components/ui-bits";
 import { CreateVersionDialog } from "@/components/create-version-dialog";
 import { DOCUMENTS, EDITS, PROJECTS, U, VERSIONS } from "@/lib/fixtures";
 import { ST, TIER, TYPE, dmy, isOpenEdit, isOverdue } from "@/lib/domain";
+import { buildEditRows, computeEditSummary } from "@/lib/timeline-helpers";
+import type { RowItem } from "@/lib/timeline-helpers";
 import type { Edit, EditStatus, Version } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -49,10 +51,6 @@ const pravkaWord = (n: number) => {
   return "правок";
 };
 
-type RowItem =
-  | { kind: "conflict-header"; clause: string; edits: Edit[] }
-  | { kind: "edit"; edit: Edit; conflictClause: string | null };
-
 export function TimelineView({ id }: { id: string }) {
   const router = useRouter();
   const doc = DOCUMENTS.find((x) => x.id === id);
@@ -66,18 +64,8 @@ export function TimelineView({ id }: { id: string }) {
   const proj = PROJECTS.find((p) => p.id === doc.projectId)!;
   const current = vers.length ? [...vers].sort((a, b) => b.number - a.number)[0] : null;
 
-  const openCount = edits.filter(isOpenEdit).length;
-  const closedCount = edits.length - openCount;
-  const candidates = edits.filter((e) => e.status === "accepted" && !e.appliedIn);
-  const blockers = edits.filter((e) => e.tier === "blocker" && isOpenEdit(e)).length;
-  const overdue = edits.filter(isOverdue).length;
-
-  const byClause: Record<string, Edit[]> = {};
-  edits.filter(isOpenEdit).forEach((e) => {
-    byClause[e.clause] = byClause[e.clause] || [];
-    byClause[e.clause].push(e);
-  });
-  const conflicts = Object.entries(byClause).filter(([, arr]) => arr.length > 1);
+  const { openCount, closedCount, candidates, blockers, overdue, conflicts } =
+    computeEditSummary(edits);
 
   const downloadVersion = (v: Version) => {
     const lines = [
@@ -141,36 +129,7 @@ export function TimelineView({ id }: { id: string }) {
     toast.success(`Версия ${code} добавлена`);
   };
 
-  const rows: RowItem[] = (() => {
-    const handled = new Set<string>();
-    const conflictRows: RowItem[] = [];
-    conflicts.forEach(([clause, ces]) => {
-      conflictRows.push({ kind: "conflict-header", clause, edits: ces });
-      ces
-        .slice()
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .forEach((e) => {
-          conflictRows.push({ kind: "edit", edit: e, conflictClause: clause });
-          handled.add(e.id);
-        });
-    });
-
-    const remaining = edits.filter((e) => !handled.has(e.id));
-    const sortedRemaining = remaining.slice().sort((a, b) => {
-      const aOpen = isOpenEdit(a) ? 1 : 0;
-      const bOpen = isOpenEdit(b) ? 1 : 0;
-      if (aOpen !== bOpen) return bOpen - aOpen;
-      const aRisk = (a.tier === "blocker" ? 2 : 0) + (isOverdue(a) ? 1 : 0);
-      const bRisk = (b.tier === "blocker" ? 2 : 0) + (isOverdue(b) ? 1 : 0);
-      if (aRisk !== bRisk) return bRisk - aRisk;
-      return b.date.localeCompare(a.date);
-    });
-
-    return [
-      ...conflictRows,
-      ...sortedRemaining.map((e) => ({ kind: "edit", edit: e, conflictClause: null } as const)),
-    ];
-  })();
+  const rows: RowItem[] = buildEditRows(edits);
 
   const zrs = edits.find((e) => e.id === zrsId) || null;
 
@@ -252,9 +211,20 @@ export function TimelineView({ id }: { id: string }) {
           sub={candidates.length > 0 ? `${candidates.length} принято, не внесено` : undefined}
           tone={openCount > 0 ? "amber" : "emerald"}
         />
-        <SummaryCard label="Блокеры" value={blockers} tone={blockers > 0 ? "red" : "neutral"} />
-        <SummaryCard label="Просрочка" value={overdue} tone={overdue > 0 ? "red" : "neutral"} />
         <SummaryCard
+          testId="summary-blockers"
+          label="Блокеры"
+          value={blockers}
+          tone={blockers > 0 ? "red" : "neutral"}
+        />
+        <SummaryCard
+          testId="summary-overdue"
+          label="Просрочка"
+          value={overdue}
+          tone={overdue > 0 ? "red" : "neutral"}
+        />
+        <SummaryCard
+          testId="summary-conflicts"
           label="Конфликты"
           value={conflicts.length}
           tone={conflicts.length > 0 ? "red" : "neutral"}
@@ -301,6 +271,7 @@ export function TimelineView({ id }: { id: string }) {
             return (
               <div
                 key={e.id}
+                data-testid={`edit-row-${e.id}`}
                 onClick={() => setZrsId(e.id)}
                 className={cn(
                   "grid cursor-pointer grid-cols-[1fr_160px_150px_150px_110px] items-center gap-4 border-b px-4 py-3 last:border-0 hover:bg-muted/40",
@@ -353,11 +324,13 @@ function SummaryCard({
   value,
   sub,
   tone = "neutral",
+  testId,
 }: {
   label: string;
   value: React.ReactNode;
   sub?: React.ReactNode;
   tone?: "neutral" | "amber" | "red" | "emerald";
+  testId?: string;
 }) {
   const toneClass = {
     neutral: "text-foreground",
@@ -367,7 +340,7 @@ function SummaryCard({
   }[tone];
 
   return (
-    <Card size="sm">
+    <Card size="sm" data-testid={testId}>
       <CardContent className="space-y-1">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className={cn("text-lg font-semibold leading-tight", toneClass)}>{value}</div>

@@ -29,8 +29,27 @@ npm run build
 - Сборка проходит без ошибок.
 - Линт чистый.
 - TypeScript без ошибок.
+- Unit-тесты: `npm run test:unit` — логика сортировки, группировки, конфликтов и просрочки.
+- E2E-smoke: `npm run test:e2e` — `/documents/d1` открывается, видны блокеры/просрочка/конфликты, клик по правке открывает детали.
 - Smoke HTTPS: `/documents/d1` открывается, данные рендерятся корректно.
 - Скриншоты ключевых состояний: `docs/screenshots/document-d1.png`, `docs/screenshots/document-d5.png`.
+
+**Тесты и CI**
+
+Добавлены unit-тесты (`vitest`) и E2E-smoke (`playwright`) согласно требованиям работодателя:
+
+```bash
+npm run test:unit
+npm run test:e2e
+npm run test:all
+```
+
+CI-ready templates:
+
+- `docs/ci/github-actions-ci.yml` — install, lint, typecheck, unit tests, build.
+- `docs/ci/github-actions-e2e.yml` — install, production build, Playwright-smoke в Chromium.
+
+Подробнее в `docs/TESTING.md` и `docs/SECURITY.md`.
 
 **Что не делалось**
 
