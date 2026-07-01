@@ -420,10 +420,15 @@ function ZrsBody({
         )}
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           {edit.bitrix && (
-            <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1">
+            <a
+              href={edit.bitrix}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 hover:bg-muted hover:text-foreground"
+            >
               <ExternalLink className="size-3" />
               Битрикс
-            </span>
+            </a>
           )}
           {edit.proof && <span className="rounded-md border px-2 py-1">{edit.proof}</span>}
           {edit.appliedIn && <span className="rounded-md border px-2 py-1">в версии v{edit.appliedIn}</span>}

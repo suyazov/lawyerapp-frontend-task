@@ -39,5 +39,9 @@ test.describe("/documents/d1 smoke", () => {
     await expect(dialog.getByText("Стало")).toBeVisible();
     await expect(dialog.getByText("Аргументация")).toBeVisible();
     await expect(dialog.getByText("Контрагент просит снизить ставку неустойки вдвое.")).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Битрикс" })).toHaveAttribute(
+      "href",
+      "https://bitrix.example/task/4822"
+    );
   });
 });
