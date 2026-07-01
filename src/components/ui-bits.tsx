@@ -7,9 +7,9 @@ export function Dot({ className }: { className?: string }) {
 
 export function Meta({ m, className }: { m: { label: string; dot: string }; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap", className)}>
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap", className)}>
       <Dot className={m.dot} />
-      {m.label}
+      <span className="truncate">{m.label}</span>
     </span>
   );
 }

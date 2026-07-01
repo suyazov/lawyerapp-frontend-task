@@ -2,37 +2,70 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, AlertTriangle, ExternalLink, ArrowLeft, Download, MoreVertical, Layers } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Clock,
+  Download,
+  ExternalLink,
+  Layers,
+  MoreVertical,
+  ShieldAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Meta } from "@/components/ui-bits";
 import { CreateVersionDialog } from "@/components/create-version-dialog";
-import { EventJournal } from "@/components/event-journal";
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { DOCUMENTS, PROJECTS, VERSIONS, EDITS, U } from "@/lib/fixtures";
+import { DOCUMENTS, EDITS, PROJECTS, U, VERSIONS } from "@/lib/fixtures";
+import { ST, TIER, TYPE, dmy, isOpenEdit, isOverdue } from "@/lib/domain";
+import { buildEditRows, computeEditSummary } from "@/lib/timeline-helpers";
+import type { RowItem } from "@/lib/timeline-helpers";
 import type { Edit, EditStatus, Version } from "@/lib/types";
-import { ST, TIER, TYPE, dmy, dayStatus, isOpenEdit, isOverdue } from "@/lib/domain";
+import { cn } from "@/lib/utils";
 
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const pravkaWord = (n: number) => { const a = n % 10, b = n % 100; if (a === 1 && b !== 11) return "правка"; if (a >= 2 && a <= 4 && (b < 10 || b >= 20)) return "правки"; return "правок"; };
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const pravkaWord = (n: number) => {
+  const a = n % 10;
+  const b = n % 100;
+  if (a === 1 && b !== 11) return "правка";
+  if (a >= 2 && a <= 4 && (b < 10 || b >= 20)) return "правки";
+  return "правок";
+};
 
 export function TimelineView({ id }: { id: string }) {
   const router = useRouter();
   const doc = DOCUMENTS.find((x) => x.id === id);
   const [edits, setEdits] = useState<Edit[]>(() => EDITS.filter((e) => e.docId === id));
   const [vers, setVers] = useState<Version[]>(() => VERSIONS.filter((v) => v.docId === id));
-  const dates = [...new Set([...edits.map((e) => e.date), ...vers.map((v) => v.date)])].sort().reverse();
-  const [exp, setExp] = useState<Set<string>>(() => new Set(dates.slice(0, 1)));
   const [zrsId, setZrsId] = useState<string | null>(null);
   const [verOpen, setVerOpen] = useState(false);
 
   if (!doc) return <div className="text-sm text-muted-foreground">Документ не найден.</div>;
+
   const proj = PROJECTS.find((p) => p.id === doc.projectId)!;
   const current = vers.length ? [...vers].sort((a, b) => b.number - a.number)[0] : null;
+
+  const { openCount, closedCount, candidates, blockers, overdue, conflicts } =
+    computeEditSummary(edits);
 
   const downloadVersion = (v: Version) => {
     const lines = [
@@ -55,56 +88,77 @@ export function TimelineView({ id }: { id: string }) {
     URL.revokeObjectURL(url);
   };
 
-  const toggle = (d: string) =>
-    setExp((s) => {
-      const n = new Set(s);
-      if (n.has(d)) n.delete(d);
-      else n.add(d);
-      return n;
-    });
-
-  const openByClause: Record<string, number> = {};
-  edits.filter(isOpenEdit).forEach((e) => { openByClause[e.clause] = (openByClause[e.clause] || 0) + 1; });
-  const conflict = new Set(Object.keys(openByClause).filter((k) => openByClause[k] > 1));
-
   const decide = (eid: string, status: EditStatus) => {
-    setEdits((es) => es.map((e) => (e.id === eid ? { ...e, status, approverId: status === "accepted" ? "ceo" : e.approverId } : e)));
+    setEdits((es) =>
+      es.map((e) =>
+        e.id === eid ? { ...e, status, approverId: status === "accepted" ? "ceo" : e.approverId } : e
+      )
+    );
     setZrsId(null);
     toast.success("Статус: " + ST[status].label + " · доказательство приложено");
   };
-  const escalate = () => { setZrsId(null); toast("Эскалировано команде"); };
+  const escalate = () => {
+    setZrsId(null);
+    toast("Эскалировано команде");
+  };
 
-  const candidates = edits.filter((e) => e.status === "accepted" && !e.appliedIn);
   const nextNumber = vers.reduce((m, v) => Math.max(m, v.number), 0) + 1;
-  const addVersion = ({ note, fileName, appliedIds }: { note: string; fileName: string; appliedIds: string[] }) => {
+  const addVersion = ({
+    note,
+    fileName,
+    appliedIds,
+  }: {
+    note: string;
+    fileName: string;
+    appliedIds: string[];
+  }) => {
     const number = nextNumber;
     const code = `${proj.code}.${doc.code}.v${number}`;
-    const v: Version = { id: `v-new-${number}`, docId: id, number, code, date: iso(new Date()), source: "uploaded", hash: "—", note: note || fileName };
+    const v: Version = {
+      id: `v-new-${number}`,
+      docId: id,
+      number,
+      code,
+      date: iso(new Date()),
+      source: "uploaded",
+      hash: "—",
+      note: note || fileName,
+    };
     setVers((vs) => [v, ...vs]);
     setEdits((es) => es.map((e) => (appliedIds.includes(e.id) ? { ...e, status: "applied", appliedIn: number } : e)));
     toast.success(`Версия ${code} добавлена`);
   };
 
+  const rows: RowItem[] = buildEditRows(edits);
+
   const zrs = edits.find((e) => e.id === zrsId) || null;
 
   return (
-    <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{doc.title}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{proj.title} · история правок</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {proj.title} · {proj.counterparty} · история правок
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => router.push(`/projects/${proj.id}`)} className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-accent">
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.push(`/projects/${proj.id}`)}>
             <ArrowLeft className="size-4" />
             Назад
-          </button>
-          <CreateVersionDialog nextCode={`${proj.code}.${doc.code}.v${nextNumber}`} candidates={candidates} onCreate={addVersion} open={verOpen} onOpenChange={setVerOpen} />
+          </Button>
+          <CreateVersionDialog
+            nextCode={`${proj.code}.${doc.code}.v${nextNumber}`}
+            candidates={candidates}
+            onCreate={addVersion}
+            open={verOpen}
+            onOpenChange={setVerOpen}
+          />
           {current && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Действия с версиями"
-                className="flex h-9 w-9 items-center justify-center rounded-md border hover:bg-accent data-popup-open:bg-accent"
+                className="flex h-8 w-8 items-center justify-center rounded-md border hover:bg-accent data-popup-open:bg-accent"
               >
                 <MoreVertical className="size-4" />
               </DropdownMenuTrigger>
@@ -133,7 +187,9 @@ export function TimelineView({ id }: { id: string }) {
                   <Layers />
                   Собрать новую версию
                   {candidates.length > 0 && (
-                    <span className="ml-auto text-xs text-amber-600">{candidates.length} {pravkaWord(candidates.length)}</span>
+                    <span className="ml-auto text-xs text-amber-600">
+                      {candidates.length} {pravkaWord(candidates.length)}
+                    </span>
                   )}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -142,73 +198,117 @@ export function TimelineView({ id }: { id: string }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {dates.map((date) => {
-          const de = edits.filter((e) => e.date === date);
-          const ver = vers.find((v) => v.date === date);
-          const ds = dayStatus(de);
-          const open = exp.has(date);
-          const dayConflict = de.some((e) => conflict.has(e.clause) && isOpenEdit(e));
-          return (
-            <div key={date} className="overflow-hidden rounded-lg border">
-              <div
-                onClick={() => toggle(date)}
-                className="flex cursor-pointer select-none items-center gap-3 px-4 py-3 hover:bg-muted/50"
-              >
-                <span className="text-muted-foreground">{open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</span>
-                <span className="w-24 text-sm font-medium">{dmy(date)}</span>
-                <div className="w-44"><Meta m={ds} /></div>
-                <div className="ml-auto flex items-center gap-6 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">{dayConflict && <AlertTriangle className="size-3.5 text-amber-500" />}{de.length} правок</span>
-                  {ver && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="font-mono">{ver.code}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); downloadVersion(ver); }}
-                        aria-label={`Скачать ${ver.code}`}
-                        title={`Скачать ${ver.code}`}
-                        className="rounded p-1 hover:bg-foreground/10 hover:text-foreground"
-                      >
-                        <Download className="size-3.5" />
-                      </button>
-                    </span>
-                  )}
-                </div>
-              </div>
-              {open && (
-                <div className="border-t bg-[#1D1D1F]">
-                  {de.map((e) => {
-                    const conf = conflict.has(e.clause) && isOpenEdit(e);
-                    return (
-                      <div
-                        key={e.id}
-                        onClick={() => setZrsId(e.id)}
-                        className="grid cursor-pointer grid-cols-[1fr_200px_160px] items-center gap-4 border-b border-white/10 px-4 py-3 last:border-0 hover:bg-white/5"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 text-sm font-medium text-white">
-                            {e.clause}
-                            {conf && <AlertTriangle className="size-3.5 text-amber-500" />}
-                          </div>
-                          <div className="mt-0.5 truncate text-xs text-white/55">
-                            {TYPE[e.type]} · {U(e.responsibleId)}{isOverdue(e) ? " · просрочен" : ""}
-                          </div>
-                        </div>
-                        <Meta m={TIER[e.tier]} className="text-white/70" />
-                        <Meta m={ST[e.status]} className="text-white/70" />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <div className="px-1 pt-1 text-xs text-muted-foreground">06.06–08.06 — без правок, пропущены</div>
+      <div className="grid grid-cols-5 gap-3">
+        <SummaryCard
+          label="Текущая версия"
+          value={current ? current.code : "—"}
+          sub={current ? `v${current.number} · ${dmy(current.date)}` : "нет версий"}
+          tone="neutral"
+        />
+        <SummaryCard
+          label="Открыто / закрыто"
+          value={`${openCount} / ${closedCount}`}
+          sub={candidates.length > 0 ? `${candidates.length} принято, не внесено` : undefined}
+          tone={openCount > 0 ? "amber" : "emerald"}
+        />
+        <SummaryCard
+          testId="summary-blockers"
+          label="Блокеры"
+          value={blockers}
+          tone={blockers > 0 ? "red" : "neutral"}
+        />
+        <SummaryCard
+          testId="summary-overdue"
+          label="Просрочка"
+          value={overdue}
+          tone={overdue > 0 ? "red" : "neutral"}
+        />
+        <SummaryCard
+          testId="summary-conflicts"
+          label="Конфликты"
+          value={conflicts.length}
+          tone={conflicts.length > 0 ? "red" : "neutral"}
+        />
       </div>
 
-      <EventJournal docs={[doc]} getEdits={() => edits} getVers={() => vers} scopeLabel="Хронология по этому документу" />
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Правки</h2>
+          <span className="text-xs text-muted-foreground">
+            {edits.length} {pravkaWord(edits.length)}
+          </span>
+        </div>
+        <div className="overflow-hidden rounded-lg border">
+          <div className="grid grid-cols-[1fr_160px_150px_150px_110px] gap-4 border-b bg-muted/50 px-4 py-2.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <div>Пункт</div>
+            <div>Ответственный</div>
+            <div>Уровень</div>
+            <div>Статус</div>
+            <div>Дедлайн</div>
+          </div>
+          {edits.length === 0 && (
+            <div className="px-4 py-10 text-center text-sm text-muted-foreground">Правок пока нет.</div>
+          )}
+          {rows.map((row) => {
+            if (row.kind === "conflict-header") {
+              const names = row.edits.map((e) => U(e.responsibleId));
+              return (
+                <div
+                  key={`conflict-${row.clause}`}
+                  className="border-b border-amber-200 bg-amber-50/60 px-4 py-2"
+                >
+                  <div className="flex items-center gap-2 text-xs text-amber-800">
+                    <AlertTriangle className="size-3.5 shrink-0" />
+                    <span className="font-medium">Конфликт · {row.clause}</span>
+                    <span className="text-amber-700/70">{names.join(" vs ")}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            const e = row.edit;
+            const closed = !isOpenEdit(e);
+            return (
+              <div
+                key={e.id}
+                data-testid={`edit-row-${e.id}`}
+                onClick={() => setZrsId(e.id)}
+                className={cn(
+                  "grid cursor-pointer grid-cols-[1fr_160px_150px_150px_110px] items-center gap-4 border-b px-4 py-3 last:border-0 hover:bg-muted/40",
+                  closed && "text-muted-foreground/60"
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {e.clause}
+                    {e.tier === "blocker" && isOpenEdit(e) && (
+                      <ShieldAlert className="size-3.5 shrink-0 text-red-500" />
+                    )}
+                    {isOverdue(e) && <Clock className="size-3.5 shrink-0 text-red-500" />}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{TYPE[e.type]}</div>
+                </div>
+                <div className="truncate text-sm">{U(e.responsibleId)}</div>
+                <div className="min-w-0">
+                  <Meta m={TIER[e.tier]} className={closed ? "opacity-60" : ""} />
+                </div>
+                <div className="min-w-0">
+                  <Meta m={ST[e.status]} className={closed ? "opacity-60" : ""} />
+                </div>
+                <div
+                  className={cn(
+                    "text-sm tabular-nums",
+                    isOverdue(e) && "font-medium text-red-600",
+                    closed && "text-muted-foreground/60"
+                  )}
+                >
+                  {dmy(e.deadline)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       <Dialog open={!!zrs} onOpenChange={(o) => !o && setZrsId(null)}>
         <DialogContent className="max-w-2xl">
@@ -219,13 +319,55 @@ export function TimelineView({ id }: { id: string }) {
   );
 }
 
-function ZrsBody({ edit, onDecide, onEscalate }: { edit: Edit; onDecide: (id: string, s: EditStatus) => void; onEscalate: () => void }) {
+function SummaryCard({
+  label,
+  value,
+  sub,
+  tone = "neutral",
+  testId,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  tone?: "neutral" | "amber" | "red" | "emerald";
+  testId?: string;
+}) {
+  const toneClass = {
+    neutral: "text-foreground",
+    amber: "text-amber-600",
+    red: "text-red-600",
+    emerald: "text-emerald-600",
+  }[tone];
+
+  return (
+    <Card size="sm" data-testid={testId}>
+      <CardContent className="space-y-1">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className={cn("text-lg font-semibold leading-tight", toneClass)}>{value}</div>
+        {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ZrsBody({
+  edit,
+  onDecide,
+  onEscalate,
+}: {
+  edit: Edit;
+  onDecide: (id: string, s: EditStatus) => void;
+  onEscalate: () => void;
+}) {
   const tier = TIER[edit.tier];
   const blocker = edit.tier === "blocker";
+
   return (
     <>
       <DialogHeader>
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">ЗРС · законченная работа сотрудника</div>
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          ЗРС · законченная работа сотрудника
+        </div>
         <DialogTitle className="text-base">{edit.clause}</DialogTitle>
         <div className="mt-1.5 flex items-center gap-3">
           <Meta m={ST[edit.status]} />
@@ -247,10 +389,19 @@ function ZrsBody({ edit, onDecide, onEscalate }: { edit: Edit; onDecide: (id: st
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-          {([["Тип", TYPE[edit.type]], ["Ответственный", U(edit.responsibleId)], ["Автор", U(edit.authorId)], ["Дедлайн", dmy(edit.deadline)]] as [string, string][]).map(([k, v]) => (
+          {(
+            [
+              ["Тип", TYPE[edit.type]],
+              ["Ответственный", U(edit.responsibleId)],
+              ["Автор", U(edit.authorId)],
+              ["Дедлайн", dmy(edit.deadline)],
+            ] as [string, string][]
+          ).map(([k, v]) => (
             <div key={k}>
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</div>
-              <div className={"font-medium " + (k === "Дедлайн" && isOverdue(edit) ? "text-red-600" : "")}>{v}</div>
+              <div className={cn("font-medium", k === "Дедлайн" && isOverdue(edit) && "text-red-600")}>
+                {v}
+              </div>
             </div>
           ))}
         </div>
@@ -261,12 +412,24 @@ function ZrsBody({ edit, onDecide, onEscalate }: { edit: Edit; onDecide: (id: st
         </div>
         {edit.privateNote && (
           <div>
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Приватная заметка юриста</div>
+            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+              Приватная заметка юриста
+            </div>
             <div className="rounded-md bg-muted p-3 text-sm text-foreground/80">{edit.privateNote}</div>
           </div>
         )}
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          {edit.bitrix && <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1"><ExternalLink className="size-3" />Битрикс</span>}
+          {edit.bitrix && (
+            <a
+              href={edit.bitrix}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 hover:bg-muted hover:text-foreground"
+            >
+              <ExternalLink className="size-3" />
+              Битрикс
+            </a>
+          )}
           {edit.proof && <span className="rounded-md border px-2 py-1">{edit.proof}</span>}
           {edit.appliedIn && <span className="rounded-md border px-2 py-1">в версии v{edit.appliedIn}</span>}
         </div>
@@ -280,17 +443,31 @@ function ZrsBody({ edit, onDecide, onEscalate }: { edit: Edit; onDecide: (id: st
               <span>{tier.hint}</span>
             </div>
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={onEscalate}>Эскалировать команде</Button>
-              <Button variant="outline" className="flex-1" onClick={() => onDecide(edit.id, "rework")}>На доработку</Button>
+              <Button className="flex-1" onClick={onEscalate}>
+                Эскалировать команде
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={() => onDecide(edit.id, "rework")}>
+                На доработку
+              </Button>
             </div>
           </>
         ) : (
           <>
             <div className="mb-2 text-xs text-muted-foreground">{tier.hint}</div>
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={() => onDecide(edit.id, "accepted")}>Принято</Button>
-              <Button variant="outline" className="flex-1" onClick={() => onDecide(edit.id, "rework")}>На доработку</Button>
-              <Button variant="outline" className="flex-1 text-red-600" onClick={() => onDecide(edit.id, "rejected")}>Отклонено</Button>
+              <Button className="flex-1" onClick={() => onDecide(edit.id, "accepted")}>
+                Принято
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={() => onDecide(edit.id, "rework")}>
+                На доработку
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1 text-red-600"
+                onClick={() => onDecide(edit.id, "rejected")}
+              >
+                Отклонено
+              </Button>
             </div>
           </>
         )}

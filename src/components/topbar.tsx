@@ -18,7 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -90,7 +89,9 @@ export function Topbar() {
             }
           />
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Помощник юриста</DropdownMenuLabel>
+            <div className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
+              Помощник юриста
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem>
               <User className="size-4" />
