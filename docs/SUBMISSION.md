@@ -44,10 +44,10 @@ npm run test:e2e
 npm run test:all
 ```
 
-CI-ready templates:
+GitHub Actions:
 
-- `docs/ci/github-actions-ci.yml` — install, lint, typecheck, unit tests, build.
-- `docs/ci/github-actions-e2e.yml` — install, production build, Playwright-smoke в Chromium.
+- `.github/workflows/ci.yml` — install, lint, typecheck, unit tests, build.
+- `.github/workflows/e2e.yml` — install, production build, Playwright-smoke в Chromium.
 
 Подробнее в `docs/TESTING.md` и `docs/SECURITY.md`.
 

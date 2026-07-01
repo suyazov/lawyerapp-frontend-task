@@ -65,15 +65,13 @@ PLAYWRIGHT_BASE_URL=http://localhost:3456 npm run test:e2e
 - `npm run build` — production-сборка проходит.
 - `npm run test:e2e` — smoke-тест `/documents/d1` проходит в Chromium.
 
-## CI-ready templates
+## CI
 
-- `docs/ci/github-actions-ci.yml` — install, lint, typecheck, unit tests, build.
-- `docs/ci/github-actions-e2e.yml` — production-сборка и Playwright-smoke в Chromium.
+- `.github/workflows/ci.yml` — install, lint, typecheck, unit tests, build.
+- `.github/workflows/e2e.yml` — production-сборка и Playwright-smoke в Chromium.
 
-Файлы лежат как готовые GitHub Actions templates. Включение реальных `.github/workflows/*.yml`
-требует GitHub token с правом `workflow`; текущий deployment token репозитория не имеет
-этого scope, поэтому workflow-шаблоны не публикуются как активные Actions в рамках этой сдачи.
-E2E вынесен в отдельный workflow-шаблон, чтобы основная проверка оставалась быстрой.
+E2E вынесен в отдельный workflow, чтобы основная проверка оставалась быстрой, а браузерные
+зависимости не замедляли обычную CI-джобу.
 
 ## Скриншоты
 
