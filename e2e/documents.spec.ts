@@ -1,6 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("/documents/d1 smoke", () => {
+  test("opens the user menu without crashing the page", async ({ page }) => {
+    await page.goto("/documents/d1");
+
+    await page.getByRole("button", { name: /Аня Ю\.|АЮ/ }).click();
+
+    await expect(page.getByText("Помощник юриста", { exact: true })).toBeVisible();
+    await expect(page.getByText("Профиль", { exact: true })).toBeVisible();
+    await expect(page.getByText("Выйти", { exact: true })).toBeVisible();
+    await expect(page.getByText("This page couldn't load")).toBeHidden();
+  });
+
   test("renders summary cards, conflict, overdue date and edit details", async ({ page }) => {
     await page.goto("/documents/d1");
 
