@@ -60,35 +60,60 @@ function statusTone(status: ClientStatus) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300";
 }
 
-function readClients(): Client[] {
-  if (typeof window === "undefined") return DEMO_CLIENTS;
+let cachedClients: Client[] = DEMO_CLIENTS;
+
+function refreshClients() {
+  if (typeof window === "undefined") return;
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return DEMO_CLIENTS;
+    if (!saved) {
+      cachedClients = DEMO_CLIENTS;
+      return;
+    }
     const parsed = JSON.parse(saved) as Client[];
-    if (!Array.isArray(parsed)) return DEMO_CLIENTS;
-    return parsed;
+    cachedClients = Array.isArray(parsed) ? parsed : DEMO_CLIENTS;
   } catch {
-    return DEMO_CLIENTS;
+    cachedClients = DEMO_CLIENTS;
   }
-}
-
-function writeClients(clients: Client[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
-  window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
 }
 
 function subscribeClients(callback: () => void) {
   const handler = (event: StorageEvent) => {
-    if (event.key === STORAGE_KEY) callback();
+    if (event.key === STORAGE_KEY) {
+      refreshClients();
+      callback();
+    }
   };
   window.addEventListener("storage", handler);
   return () => window.removeEventListener("storage", handler);
 }
 
 function useClients() {
-  return useSyncExternalStore<Client[]>(subscribeClients, readClients, () => DEMO_CLIENTS);
+  return useSyncExternalStore<Client[]>(
+    subscribeClients,
+    () => cachedClients,
+    () => DEMO_CLIENTS
+  );
+}
+
+function writeClients(clients: Client[]) {
+  if (typeof window === "undefined") return;
+  cachedClients = clients;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
+  window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+}
+
+// After hydration refresh the cache from localStorage so persisted data is shown.
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  const refresh = () => {
+    refreshClients();
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", refresh, { once: true });
+  } else {
+    refresh();
+  }
 }
 
 export function ClientsCrm() {
@@ -124,7 +149,7 @@ export function ClientsCrm() {
       createdAt: new Date().toISOString(),
     };
 
-    writeClients([nextClient, ...readClients()]);
+    writeClients([nextClient, ...clients]);
     setName("");
     setPhone("");
     setStatus("new");
@@ -132,11 +157,11 @@ export function ClientsCrm() {
   };
 
   const updateStatus = (clientId: string, nextStatus: ClientStatus) => {
-    writeClients(readClients().map((client) => (client.id === clientId ? { ...client, status: nextStatus } : client)));
+    writeClients(clients.map((client) => (client.id === clientId ? { ...client, status: nextStatus } : client)));
   };
 
   const removeClient = (clientId: string) => {
-    writeClients(readClients().filter((client) => client.id !== clientId));
+    writeClients(clients.filter((client) => client.id !== clientId));
   };
 
   const resetDemo = () => {
