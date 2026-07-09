@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { Phone, Plus, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,41 +60,43 @@ function statusTone(status: ClientStatus) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300";
 }
 
-function saveClients(clients: Client[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
-}
-
-function loadClients() {
+function readClients(): Client[] {
   if (typeof window === "undefined") return DEMO_CLIENTS;
-
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (!saved) return DEMO_CLIENTS;
-
     const parsed = JSON.parse(saved) as Client[];
     if (!Array.isArray(parsed)) return DEMO_CLIENTS;
-
     return parsed;
   } catch {
     return DEMO_CLIENTS;
   }
 }
 
+function writeClients(clients: Client[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
+  window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+}
+
+function subscribeClients(callback: () => void) {
+  const handler = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY) callback();
+  };
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
+}
+
+function useClients() {
+  return useSyncExternalStore<Client[]>(subscribeClients, readClients, () => DEMO_CLIENTS);
+}
+
 export function ClientsCrm() {
-  const [clients, setClients] = useState<Client[]>(DEMO_CLIENTS);
+  const clients = useClients();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<ClientStatus>("new");
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    setClients(loadClients());
-  }, []);
-
-  useEffect(() => {
-    saveClients(clients);
-  }, [clients]);
 
   const counts = useMemo(() => {
     return clients.reduce(
@@ -122,7 +124,7 @@ export function ClientsCrm() {
       createdAt: new Date().toISOString(),
     };
 
-    setClients((items) => [nextClient, ...items]);
+    writeClients([nextClient, ...readClients()]);
     setName("");
     setPhone("");
     setStatus("new");
@@ -130,11 +132,15 @@ export function ClientsCrm() {
   };
 
   const updateStatus = (clientId: string, nextStatus: ClientStatus) => {
-    setClients((items) => items.map((client) => (client.id === clientId ? { ...client, status: nextStatus } : client)));
+    writeClients(readClients().map((client) => (client.id === clientId ? { ...client, status: nextStatus } : client)));
   };
 
   const removeClient = (clientId: string) => {
-    setClients((items) => items.filter((client) => client.id !== clientId));
+    writeClients(readClients().filter((client) => client.id !== clientId));
+  };
+
+  const resetDemo = () => {
+    writeClients(DEMO_CLIENTS);
   };
 
   return (
@@ -150,7 +156,7 @@ export function ClientsCrm() {
             Быстрый прототип: юрист добавляет клиента, меняет статус дела и сразу видит распределение обращений по воронке.
           </p>
         </div>
-        <Button variant="outline" onClick={() => setClients(DEMO_CLIENTS)}>
+        <Button variant="outline" onClick={resetDemo}>
           Вернуть демо-данные
         </Button>
       </div>
