@@ -36,3 +36,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 11. Повторная итерация продолжает существующую `kimi/<TASK-ID>` и тот же Pull Request без force reset.
 12. Конфликт с `main` в кодовом файле не разрешать автоматически: остановиться и запросить ручное решение.
 <!-- KIMI-AUTOMATION:END -->
+
+<!-- KIMI-EXECUTION-V2:START -->
+## Kimi execution safety
+
+- Primary TASK and `/kimi-fix` use the same project lock, environment lock, isolated worktree and SHA validator.
+- The required model is explicitly `kimi-code/k3`.
+- Feedback continues the same `kimi/TASK-ID` branch and the same Pull Request.
+- Do not bypass `kimi-execution-guard.sh`, reuse a runner checkout as a worktree, or remove another run's lock.
+<!-- KIMI-EXECUTION-V2:END -->

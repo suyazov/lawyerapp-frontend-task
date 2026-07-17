@@ -1,53 +1,24 @@
 name: Run Kimi Task
-
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "tasks/ACTIVE.md"
-      - "tasks/TASK-*.md"
-      - "AGENTS.md"
-      - "scripts/read-active-task.sh"
-      - "scripts/run-kimi-task.sh"
-      - "scripts/validate-task-state.sh"
+    branches: [main]
+    paths: ["tasks/ACTIVE.md", "tasks/TASK-*.md", "AGENTS.md", "scripts/**"]
   workflow_dispatch:
-
 concurrency:
-  group: kimi-active-task
+  group: kimi-project-${{ github.repository }}
   cancel-in-progress: false
-
-permissions:
-  contents: write
-  pull-requests: write
-
+permissions: {contents: write, pull-requests: write}
 jobs:
   run-kimi:
     runs-on: [self-hosted, linux, x64, kimi]
     timeout-minutes: 90
-
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve and validate active task
-        id: task
+        with: {fetch-depth: 0}
+      - id: task
         run: ./scripts/read-active-task.sh
-
-      - name: Reject invalid ready task
-        if: steps.task.outputs.status == 'ready' && steps.task.outputs.runnable != 'true'
-        run: |
-          echo "TASK preflight failed: ${{ steps.task.outputs.reason }}"
-          exit 1
-
-      - name: Validate task SHA state before Kimi
-        if: steps.task.outputs.runnable == 'true'
-        run: bash scripts/validate-task-state.sh pre
-
-      - name: Run Kimi
-        if: steps.task.outputs.runnable == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIMI_MODEL: kimi-code/k3
+      - if: steps.task.outputs.status == 'ready' && steps.task.outputs.runnable != 'true'
+        run: exit 1
+      - if: steps.task.outputs.runnable == 'true'
+        env: {GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", KIMI_MODEL: kimi-code/k3}
         run: ./scripts/run-kimi-task.sh
