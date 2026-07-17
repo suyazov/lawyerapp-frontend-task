@@ -1,0 +1,46 @@
+name: Check Task Workflow
+
+on:
+  pull_request:
+    paths:
+      - "tasks/**"
+      - "scripts/**"
+      - "AGENTS.md"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "tasks/**"
+      - "scripts/**"
+      - "AGENTS.md"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Shell syntax
+        run: |
+          bash -n scripts/read-active-task.sh
+          bash -n scripts/run-kimi-task.sh
+          bash -n scripts/validate-task-state.sh
+
+      - name: Resolve active task
+        id: task
+        run: bash scripts/read-active-task.sh
+
+      - name: Validate active task metadata on main
+        if: github.event_name == 'push' && steps.task.outputs.task_id != ''
+        run: bash scripts/validate-task-state.sh pre
+
+      - name: Validate executor result on pull request
+        if: github.event_name == 'pull_request' && steps.task.outputs.task_id != ''
+        run: bash scripts/validate-task-state.sh post

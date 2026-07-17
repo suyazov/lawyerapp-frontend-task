@@ -10,6 +10,7 @@ on:
       - "AGENTS.md"
       - "scripts/read-active-task.sh"
       - "scripts/run-kimi-task.sh"
+      - "scripts/validate-task-state.sh"
   workflow_dispatch:
 
 concurrency:
@@ -39,6 +40,10 @@ jobs:
         run: |
           echo "TASK preflight failed: ${{ steps.task.outputs.reason }}"
           exit 1
+
+      - name: Validate task SHA state before Kimi
+        if: steps.task.outputs.runnable == 'true'
+        run: bash scripts/validate-task-state.sh pre
 
       - name: Run Kimi
         if: steps.task.outputs.runnable == 'true'

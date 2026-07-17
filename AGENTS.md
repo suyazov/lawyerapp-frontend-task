@@ -32,4 +32,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 7. После выполнения заполнить результат, поставить `status: review` и обновить один Pull Request.
 8. `status: done` и merge выполняются только после внешней проверки.
 9. Секреты, токены и пароли не коммитить и не печатать.
+10. `actual_start_sha` и `result_commit` вычисляет wrapper; Kimi не заполняет их вручную.
+11. Повторная итерация продолжает существующую `kimi/<TASK-ID>` и тот же Pull Request без force reset.
+12. Конфликт с `main` в кодовом файле не разрешать автоматически: остановиться и запросить ручное решение.
 <!-- KIMI-AUTOMATION:END -->
