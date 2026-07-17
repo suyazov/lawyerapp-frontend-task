@@ -1,0 +1,38 @@
+name: Run Kimi Task
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tasks/ACTIVE.md"
+      - "tasks/TASK-*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: kimi-active-task
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run-kimi:
+    runs-on: [self-hosted, linux, x64, kimi]
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve active task
+        id: task
+        run: ./scripts/read-active-task.sh
+
+      - name: Run Kimi
+        if: steps.task.outputs.runnable == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/run-kimi-task.sh
