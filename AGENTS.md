@@ -4,6 +4,32 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
-## Автоматизация задач (Kimi Code CLI)
 
-Задачи для Kimi оформляются в `tasks/` (см. `tasks/WORKFLOW.md`). Активная задача — в `tasks/ACTIVE.md`. Push в `main` с изменением `tasks/ACTIVE.md` или `tasks/TASK-*.md` автоматически запускает Kimi через GitHub Action: создаётся ветка `kimi/<TASK-ID>` и Pull Request. Результат проверяется по PR перед merge.
+<!-- KIMI-AUTOMATION:START -->
+## Canonical regulations
+
+Перед каждой задачей прочитать актуальные документы из:
+
+- `/var/lib/bridge-sy9/affine-pages-backup/affine/infrastructure/Регламент/1. Архитектура AFFiNE GitHub Bridge.md`
+- `/var/lib/bridge-sy9/affine-pages-backup/affine/infrastructure/Регламент/Регламент- клиентский workflow.md`
+- `/var/lib/bridge-sy9/affine-pages-backup/affine/infrastructure/Регламент/3. Автоматизация задач ChatGPT GitHub Kimi.md`
+- `/var/lib/bridge-sy9/affine-pages-backup/affine/infrastructure/Регламент/Регламент- работа с Kimi.md`
+
+Для WordPress-задач дополнительно прочитать:
+
+- `/var/lib/bridge-sy9/affine-pages-backup/affine/infrastructure/Регламент/6. WordPress проекты.md`
+
+Если хотя бы один обязательный файл недоступен, неактуален или противоречит TASK-файлу, поставить `status: blocked`, описать причину и остановиться.
+
+## Kimi automation
+
+1. Перед работой прочитать `tasks/WORKFLOW.md`, `tasks/ACTIVE.md` и файл активной задачи.
+2. Выполнять только активную задачу со `status: ready` и четырьмя подтверждёнными preflight-флагами.
+3. Обязательная модель: `kimi-code/k3`.
+4. Не изменять `main` напрямую; работать в `kimi/<TASK-ID>`.
+5. При конфликте требований, отсутствии Context, Tasks, Access Map, регламентов или доступа поставить `status: blocked` и остановиться.
+6. Менять только разрешённый TASK scope; не выполнять production deploy или удаление без отдельного подтверждения Артёма.
+7. После выполнения заполнить результат, поставить `status: review` и обновить один Pull Request.
+8. `status: done` и merge выполняются только после внешней проверки.
+9. Секреты, токены и пароли не коммитить и не печатать.
+<!-- KIMI-AUTOMATION:END -->

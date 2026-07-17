@@ -7,6 +7,9 @@ on:
     paths:
       - "tasks/ACTIVE.md"
       - "tasks/TASK-*.md"
+      - "AGENTS.md"
+      - "scripts/read-active-task.sh"
+      - "scripts/run-kimi-task.sh"
   workflow_dispatch:
 
 concurrency:
@@ -27,12 +30,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve active task
+      - name: Resolve and validate active task
         id: task
         run: ./scripts/read-active-task.sh
+
+      - name: Reject invalid ready task
+        if: steps.task.outputs.status == 'ready' && steps.task.outputs.runnable != 'true'
+        run: |
+          echo "TASK preflight failed: ${{ steps.task.outputs.reason }}"
+          exit 1
 
       - name: Run Kimi
         if: steps.task.outputs.runnable == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIMI_MODEL: kimi-code/k3
         run: ./scripts/run-kimi-task.sh
