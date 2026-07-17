@@ -16,6 +16,10 @@ preflight_context: false
 preflight_tasks: false
 preflight_access: false
 preflight_regulations: false
+environment: none
+environment_lock: none
+preflight_executor: false
+preflight_environment: false
 created_at: YYYY-MM-DD HH:MM MSK
 updated_at: YYYY-MM-DD HH:MM MSK
 created_by: ChatGPT

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."; : "${GH_TOKEN:?}"; : "${PR_NUMBER:?}"; : "${COMMENT_BODY:?}"
+REPO="${GITHUB_REPOSITORY:?}"; HEAD="$(gh pr view "$PR_NUMBER" -R "$REPO" --json headRefName --jq .headRefName)"; BASE="$(gh pr view "$PR_NUMBER" -R "$REPO" --json baseRefName --jq .baseRefName)"; [[ "$HEAD" == kimi/TASK-* ]]||exit 2; TASK_ID="${HEAD#kimi/}"
+if [ "${1:-}" != --inside-worktree ]; then exec ./scripts/kimi-execution-guard.sh run "$TASK_ID" "$HEAD" "$BASE" auto -- env PR_NUMBER="$PR_NUMBER" COMMENT_BODY="$COMMENT_BODY" GH_TOKEN="$GH_TOKEN" GITHUB_REPOSITORY="$REPO" KIMI_MODEL="${KIMI_MODEL:-kimi-code/k3}" ./scripts/run-kimi-pr-feedback.sh --inside-worktree; fi
+MODEL="${KIMI_MODEL:-kimi-code/k3}"; [ "$MODEL" = kimi-code/k3 ]||exit 2; TASK_FILE="${KIMI_TASK_FILE:?}"; ./scripts/validate-task-state.sh pre "$TASK_FILE" "$TASK_ID"
+git config user.name "${GIT_AUTHOR_NAME:-kimi-bot}"; git config user.email "${GIT_AUTHOR_EMAIL:-kimi-bot@users.noreply.github.com}"; sed -i '0,/^status:.*/s//status: in_progress/' "$TASK_FILE"; git add "$TASK_FILE"; git diff --cached --quiet||git commit -m "task($TASK_ID): resume PR feedback"
+PROMPT="Read AGENTS.md, tasks/WORKFLOW.md and $TASK_FILE. In existing PR #$PR_NUMBER fix only this review feedback, preserve accepted work, use $MODEL, set review on success or blocked on failure, never create another PR or merge main: $COMMENT_BODY"
+code=0; timeout "${KIMI_TIMEOUT:-75m}" kimi --print --afk --model "$MODEL" --work-dir "$PWD" --prompt "$PROMPT"||code=$?; STATUS="$(sed -n 's/^status:[[:space:]]*//p' "$TASK_FILE"|head -1|tr -d '[:space:]')"; if { [ "$code" -ne 0 ]||[ "$STATUS" != review ]; }&&[ "$STATUS" != blocked ]; then sed -i '0,/^status:.*/s//status: blocked/' "$TASK_FILE"; fi
+git add -A; git diff --cached --quiet||git commit -m "task($TASK_ID): address PR feedback"; STATUS="$(sed -n 's/^status:[[:space:]]*//p' "$TASK_FILE"|head -1|tr -d '[:space:]')"
+if [ "$STATUS" = review ]; then RESULT="$(git rev-parse HEAD)"; sed -i "0,/^result_commit:.*/s//result_commit: $RESULT/" "$TASK_FILE"; git add "$TASK_FILE"; git commit -m "task($TASK_ID): record feedback result"; fi
+./scripts/validate-task-state.sh post "$TASK_FILE" "$TASK_ID"; git push origin "HEAD:refs/heads/$HEAD"; [ "$(gh pr view "$PR_NUMBER" -R "$REPO" --json headRefName --jq .headRefName)" = "$HEAD" ]||exit 3; gh pr comment "$PR_NUMBER" -R "$REPO" --body "Kimi feedback iteration complete: $TASK_ID status=$STATUS branch=$HEAD"; exit "$code"

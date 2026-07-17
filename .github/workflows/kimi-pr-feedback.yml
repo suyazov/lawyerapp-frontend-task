@@ -1,0 +1,25 @@
+name: Kimi PR Feedback
+on:
+  issue_comment: {types: [created]}
+  workflow_dispatch:
+    inputs:
+      pr_number: {description: Pull request number, required: true, type: string}
+      feedback: {description: Feedback text, required: true, type: string}
+concurrency:
+  group: kimi-project-${{ github.repository }}
+  cancel-in-progress: false
+permissions: {contents: write, pull-requests: write, issues: write}
+jobs:
+  rerun-kimi:
+    if: (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/kimi-fix')) || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, linux, x64, kimi]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          PR_NUMBER: "${{ github.event.issue.number || inputs.pr_number }}"
+          COMMENT_BODY: "${{ github.event.comment.body || inputs.feedback }}"
+          KIMI_MODEL: kimi-code/k3
+        run: ./scripts/run-kimi-pr-feedback.sh

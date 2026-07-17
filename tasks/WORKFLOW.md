@@ -99,3 +99,21 @@ preflight_regulations: true
 - Повторная итерация продолжает существующую remote-ветку без `checkout -B`, force push или переписывания истории.
 - Изменения и замечания из `main` синхронизируются перед новой итерацией.
 - При конфликте в кодовом файле merge останавливается без автоматического разрешения.
+
+<!-- KIMI-EXECUTION-V2:START -->
+## Execution safety v2
+
+Primary TASK и повторная команда `/kimi-fix` используют один execution layer:
+
+- `kimi-code/k3` явно;
+- project lock на репозиторий;
+- environment lock из `environment_lock`, `environment` или `deploy_url`;
+- отдельный worktree каждого запуска;
+- общий SHA validator;
+- существующая ветка `kimi/TASK-ID` и один PR;
+- cleanup worktree и locks через trap.
+
+TASK со статусом `ready` запускается только при шести подтверждённых preflight-флагах: context, tasks, access, regulations, executor и environment. Kimi не ставит `done`, не мержит PR и не меняет production без отдельного разрешения.
+
+`/kimi-fix` исправляет только замечание в том же TASK, той же ветке и том же PR. Второй PR запрещён.
+<!-- KIMI-EXECUTION-V2:END -->
