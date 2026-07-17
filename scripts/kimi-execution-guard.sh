@@ -15,17 +15,29 @@ REPOSITORY="${GITHUB_REPOSITORY:-$(git -C "$ROOT" remote get-url origin | sed -E
 SAFE_REPO="$(printf '%s' "$REPOSITORY" | tr '/:' '--' | tr -cd '[:alnum:]_.-')"
 SAFE_TASK="$(printf '%s' "$TASK_ID" | tr -cd '[:alnum:]_.-')"
 RUN_KEY="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}-$$"
-LOCK_ROOT="${KIMI_LOCK_ROOT:-/var/lock/kimi-execution}"
+PROJECT_LOCK_ROOT="${KIMI_PROJECT_LOCK_ROOT:-/var/lock/kimi-projects}"
+ENVIRONMENT_LOCK_ROOT="${KIMI_ENVIRONMENT_LOCK_ROOT:-/var/lock/kimi-environments}"
 WORKTREE_ROOT="${KIMI_WORKTREE_ROOT:-/var/lib/kimi-worktrees}"
 WORKTREE="$WORKTREE_ROOT/$SAFE_REPO/$SAFE_TASK-$RUN_KEY"
-mkdir -p "$LOCK_ROOT" "$(dirname "$WORKTREE")"
+mkdir -p "$PROJECT_LOCK_ROOT" "$ENVIRONMENT_LOCK_ROOT" "$(dirname "$WORKTREE")"
 
-exec 9>"$LOCK_ROOT/project-$SAFE_REPO.lock"
-flock -n 9 || { echo "project_lock_busy:$REPOSITORY" >&2; exit 75; }
+exec 9>"$PROJECT_LOCK_ROOT/$SAFE_REPO.lock"
+flock -n 9 || {
+  printf 'status=blocked\nreason=executor_busy\nlock=project\nrepository=%s\n' "$REPOSITORY" >&2
+  exit 75
+}
 
+WORKTREE_CREATED=false
+REMOVE_WORKTREE=false
+PRESERVE_REASON=execution_interrupted
 cleanup() {
-  git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
-  git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+  $WORKTREE_CREATED || return 0
+  if $REMOVE_WORKTREE; then
+    git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+    git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+  else
+    printf 'status=blocked\nreason=%s\nworktree=%s\n' "$PRESERVE_REASON" "$WORKTREE" >&2
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -37,10 +49,13 @@ else
   START="origin/$BASE"
 fi
 git -C "$ROOT" worktree add --detach "$WORKTREE" "$START" >/dev/null
+WORKTREE_CREATED=true
+INITIAL_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 
 if [ "$START" != "origin/$BASE" ]; then
   git -C "$WORKTREE" merge --no-edit "origin/$BASE" || {
-    echo "main_merge_conflict:$BRANCH" >&2
+    PRESERVE_REASON=main_merge_conflict
+    printf 'status=blocked\nreason=main_merge_conflict\nbranch=%s\n' "$BRANCH" >&2
     exit 76
   }
 fi
@@ -63,8 +78,12 @@ fi
 
 if [ -n "$ENVIRONMENT" ] && [ "$ENVIRONMENT" != "none" ] && [ "$ENVIRONMENT" != "null" ]; then
   SAFE_ENV="$(printf '%s' "$ENVIRONMENT" | tr '/:' '--' | tr -cd '[:alnum:]_.-')"
-  exec 8>"$LOCK_ROOT/environment-$SAFE_ENV.lock"
-  flock -n 8 || { echo "environment_lock_busy:$ENVIRONMENT" >&2; exit 75; }
+  exec 8>"$ENVIRONMENT_LOCK_ROOT/$SAFE_ENV.lock"
+  flock -n 8 || {
+    REMOVE_WORKTREE=true
+    printf 'status=blocked\nreason=executor_busy\nlock=environment\nenvironment=%s\n' "$ENVIRONMENT" >&2
+    exit 75
+  }
 fi
 
 export KIMI_TASK_WORKTREE="$WORKTREE"
@@ -73,4 +92,25 @@ export KIMI_TASK_ID="$TASK_ID"
 export KIMI_TASK_BRANCH="$BRANCH"
 export KIMI_BASE_BRANCH="$BASE"
 cd "$WORKTREE"
+set +e
 "$@"
+COMMAND_CODE=$?
+set -e
+
+HEAD="$(git rev-parse HEAD)"
+if [ -z "$(git status --porcelain)" ] && [ "$HEAD" = "$INITIAL_HEAD" ]; then
+  REMOVE_WORKTREE=true
+elif [ -z "$(git status --porcelain)" ]; then
+  REMOTE_HEAD="$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | awk 'NR==1 {print $1}')"
+  if [ -n "$REMOTE_HEAD" ] && [ "$HEAD" = "$REMOTE_HEAD" ]; then
+    REMOVE_WORKTREE=true
+  fi
+fi
+
+if ! $REMOVE_WORKTREE; then
+  PRESERVE_REASON=unpushed_worktree_preserved
+  printf 'status=blocked\nreason=unpushed_worktree_preserved\nworktree=%s\n' "$WORKTREE" >&2
+  exit 78
+fi
+
+exit "$COMMAND_CODE"
