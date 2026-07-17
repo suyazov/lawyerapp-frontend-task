@@ -11,7 +11,13 @@ concurrency:
 permissions: {contents: write, pull-requests: write, issues: write}
 jobs:
   rerun-kimi:
-    if: (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/kimi-fix')) || github.event_name == 'workflow_dispatch'
+    if: >-
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/kimi-fix') &&
+       (github.event.comment.user.login == 'suyazov' ||
+        github.event.comment.author_association == 'OWNER')) ||
+      (github.event_name == 'workflow_dispatch' && github.actor == 'suyazov')
     runs-on: [self-hosted, linux, x64, kimi]
     timeout-minutes: 90
     steps:
@@ -22,4 +28,13 @@ jobs:
           PR_NUMBER: "${{ github.event.issue.number || inputs.pr_number }}"
           COMMENT_BODY: "${{ github.event.comment.body || inputs.feedback }}"
           KIMI_MODEL: kimi-code/k3
-        run: ./scripts/run-kimi-pr-feedback.sh
+        run: |
+          set +e
+          output="$(./scripts/run-kimi-pr-feedback.sh 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$code" = 75 ] || [ "$code" = 78 ]; then
+            printf '## Kimi execution blocked\n\n```text\n%s\n```\n' "$output" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"

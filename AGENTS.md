@@ -37,6 +37,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 12. Конфликт с `main` в кодовом файле не разрешать автоматически: остановиться и запросить ручное решение.
 <!-- KIMI-AUTOMATION:END -->
 
+
 <!-- KIMI-EXECUTION-V2:START -->
 ## Kimi execution safety
 
