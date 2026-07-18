@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."; export PATH="${HOME:-/root}/.local/bin:/usr/local/bin:$
 if [ "${1:-}" != --inside-worktree ]; then
  V="$(./scripts/read-active-task.sh)"; echo "$V"; [ "$(printf '%s\n' "$V"|sed -n 's/^runnable=//p')" = true ]||exit 2
  TASK_ID="$(printf '%s\n' "$V"|sed -n 's/^task_id=//p')"; BASE="${GITHUB_BASE_REF:-main}"
- exec ./scripts/kimi-execution-guard.sh run "$TASK_ID" "kimi/$TASK_ID" "$BASE" auto -- ./scripts/run-kimi-task.sh --inside-worktree
+ KIMI_JOB_KIND=primary exec ./scripts/kimi-execution-guard.sh run "$TASK_ID" "kimi/$TASK_ID" "$BASE" auto -- ./scripts/run-kimi-task.sh --inside-worktree
 fi
 TASK_ID="${KIMI_TASK_ID:?}"; TASK_FILE="${KIMI_TASK_FILE:?}"; BRANCH="${KIMI_TASK_BRANCH:?}"; BASE="${KIMI_BASE_BRANCH:?}"; MODEL="${KIMI_MODEL:-kimi-code/k3}"
 [ "$MODEL" = kimi-code/k3 ]||exit 2; ./scripts/validate-task-state.sh pre "$TASK_FILE" "$TASK_ID"
