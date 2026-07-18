@@ -15,6 +15,7 @@ REPOSITORY="${GITHUB_REPOSITORY:-$(git -C "$ROOT" remote get-url origin | sed -E
 SAFE_REPO="$(printf '%s' "$REPOSITORY" | tr '/:' '--' | tr -cd '[:alnum:]_.-')"
 SAFE_TASK="$(printf '%s' "$TASK_ID" | tr -cd '[:alnum:]_.-')"
 RUN_KEY="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+RUN_ID="$SAFE_REPO-$SAFE_TASK-$RUN_KEY"
 PROJECT_LOCK_ROOT="${KIMI_PROJECT_LOCK_ROOT:-/var/lock/kimi-projects}"
 ENVIRONMENT_LOCK_ROOT="${KIMI_ENVIRONMENT_LOCK_ROOT:-/var/lock/kimi-environments}"
 WORKTREE_ROOT="${KIMI_WORKTREE_ROOT:-/var/lib/kimi-worktrees}"
@@ -22,6 +23,7 @@ WORKTREE="$WORKTREE_ROOT/$SAFE_REPO/$SAFE_TASK-$RUN_KEY"
 mkdir -p "$PROJECT_LOCK_ROOT" "$ENVIRONMENT_LOCK_ROOT" "$(dirname "$WORKTREE")"
 
 exec 9>"$PROJECT_LOCK_ROOT/$SAFE_REPO.lock"
+PROJECT_LOCK_FILE="$PROJECT_LOCK_ROOT/$SAFE_REPO.lock"
 flock -n 9 || {
   printf 'status=blocked\nreason=executor_busy\nlock=project\nrepository=%s\n' "$REPOSITORY" >&2
   exit 75
@@ -31,12 +33,22 @@ WORKTREE_CREATED=false
 REMOVE_WORKTREE=false
 PRESERVE_REASON=execution_interrupted
 cleanup() {
-  $WORKTREE_CREATED || return 0
-  if $REMOVE_WORKTREE; then
-    git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
-    git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
-  else
-    printf 'status=blocked\nreason=%s\nworktree=%s\n' "$PRESERVE_REASON" "$WORKTREE" >&2
+  if $WORKTREE_CREATED; then
+    if $REMOVE_WORKTREE; then
+      git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+      git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+    else
+      printf 'status=blocked\nreason=%s\nworktree=%s\n' "$PRESERVE_REASON" "$WORKTREE" >&2
+    fi
+  fi
+  if [ "${LOCKS_RELEASED:-false}" = false ]; then
+    [ -z "${ENV_LOCK_FILE:-}" ] || flock -u 8 2>/dev/null || true
+    flock -u 9 2>/dev/null || true
+    LOCKS_RELEASED=true
+    if [ -n "${RUN_ID:-}" ] && [ -x "${SUPERVISOR:-}" ]; then
+      source "$(dirname "$0")/kimi-lifecycle-lib.sh"
+      kimi_event locks_released "$REPOSITORY" "$TASK_ID" "$RUN_ID" "$(kimi_scope_name "$REPOSITORY" "$TASK_ID" "$RUN_ID")" '' || true
+    fi
   fi
 }
 trap cleanup EXIT INT TERM
@@ -79,12 +91,17 @@ fi
 if [ -n "$ENVIRONMENT" ] && [ "$ENVIRONMENT" != "none" ] && [ "$ENVIRONMENT" != "null" ]; then
   SAFE_ENV="$(printf '%s' "$ENVIRONMENT" | tr '/:' '--' | tr -cd '[:alnum:]_.-')"
   exec 8>"$ENVIRONMENT_LOCK_ROOT/$SAFE_ENV.lock"
+  ENV_LOCK_FILE="$ENVIRONMENT_LOCK_ROOT/$SAFE_ENV.lock"
   flock -n 8 || {
     REMOVE_WORKTREE=true
     printf 'status=blocked\nreason=executor_busy\nlock=environment\nenvironment=%s\n' "$ENVIRONMENT" >&2
     exit 75
   }
 fi
+
+ENV_LOCK_FILE="${ENV_LOCK_FILE:-}"
+SUPERVISOR="$(dirname "$0")/kimi-job-supervisor.sh"
+LOCKS_RELEASED=false
 
 export KIMI_TASK_WORKTREE="$WORKTREE"
 export KIMI_TASK_FILE="${TASK_FILE#"$WORKTREE/"}"
@@ -93,9 +110,20 @@ export KIMI_TASK_BRANCH="$BRANCH"
 export KIMI_BASE_BRANCH="$BASE"
 cd "$WORKTREE"
 set +e
-"$@"
+KIMI_JOB_KIND="${KIMI_JOB_KIND:-primary}" "$SUPERVISOR" run \
+  "$REPOSITORY" "$TASK_ID" "$RUN_ID" "$BRANCH" "$WORKTREE" "$ENVIRONMENT" \
+  "${KIMI_JOB_KIND:-primary}" "$PROJECT_LOCK_FILE" "$ENV_LOCK_FILE" -- "$@"
 COMMAND_CODE=$?
 set -e
+
+if [ "$COMMAND_CODE" -eq 124 ]; then
+  sed -i '0,/^status:.*/s//status: blocked/' "$TASK_FILE"
+  if grep -q '^block_reason:' "$TASK_FILE"; then
+    sed -i '0,/^block_reason:.*/s//block_reason: executor_timeout/' "$TASK_FILE"
+  else
+    printf '\nblock_reason: executor_timeout\n' >> "$TASK_FILE"
+  fi
+fi
 
 HEAD="$(git rev-parse HEAD)"
 if [ -z "$(git status --porcelain)" ] && [ "$HEAD" = "$INITIAL_HEAD" ]; then
